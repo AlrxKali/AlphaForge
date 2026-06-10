@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alphaforge"
+version = "0.1.0"
+description = "A modular alpha research & backtesting platform for US equities."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "AlphaForge" }]
+
+# Core dependencies needed for the data/factor/config layers.
+# The heavy execution stack (vectorbt) and reporting (quantstats) are
+# imported lazily, so the package is usable for development without them.
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pydantic>=2.5",
+    "pyarrow>=14.0",   # parquet cache
+    "yfinance>=0.2.40",
+    "typer>=0.12",     # thin CLI layer
+]
+
+[project.optional-dependencies]
+# The execution + reporting stack. Kept separate because vectorbt pulls in
+# numba/llvmlite, which can lag new Python releases (see README note).
+engine = [
+    "vectorbt>=0.26",
+    "quantstats>=0.0.62",
+    "matplotlib>=3.7",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+alphaforge = "alphaforge.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/alphaforge"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
