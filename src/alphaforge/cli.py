@@ -11,14 +11,24 @@ from datetime import date
 
 import typer
 
-from alphaforge.config import BacktestConfig, CostConfig, DataConfig, FactorConfig, Rebalance
+from alphaforge.config import (
+    BacktestConfig,
+    CostConfig,
+    DataConfig,
+    FactorConfig,
+    Rebalance,
+    UniverseConfig,
+)
 
 app = typer.Typer(add_completion=False, help="AlphaForge alpha research platform.")
 
 
 @app.command()
 def run(
-    symbols: str = typer.Option(..., help="Comma-separated tickers."),
+    symbols: str = typer.Option("", help="Comma-separated tickers (static universe)."),
+    universe_file: str = typer.Option(
+        "", help="Point-in-time membership CSV (symbol,start,end). Overrides --symbols."
+    ),
     start: str = typer.Option(..., help="Start date YYYY-MM-DD."),
     end: str = typer.Option(..., help="End date YYYY-MM-DD."),
     factor: str = typer.Option("momentum", help="Factor name."),
@@ -35,12 +45,24 @@ def run(
     from alphaforge.reporting import print_summary, save_html_report
     from alphaforge.runner import run as run_backtest
 
-    cfg = BacktestConfig(
-        data=DataConfig(
+    # Resolve the universe: a point-in-time membership file takes precedence.
+    if universe_file:
+        data = DataConfig(
+            universe=UniverseConfig(kind="point_in_time", membership_file=universe_file),
+            start=date.fromisoformat(start),
+            end=date.fromisoformat(end),
+        )
+    elif symbols:
+        data = DataConfig(
             symbols=[s.strip().upper() for s in symbols.split(",") if s.strip()],
             start=date.fromisoformat(start),
             end=date.fromisoformat(end),
-        ),
+        )
+    else:
+        raise typer.BadParameter("provide either --symbols or --universe-file")
+
+    cfg = BacktestConfig(
+        data=data,
         factor=FactorConfig(name=factor),
         costs=CostConfig(commission_bps=commission_bps, slippage_bps=slippage_bps),
         rebalance=rebalance,
@@ -50,6 +72,8 @@ def run(
     )
 
     result = run_backtest(cfg)
+    if result.quality is not None:
+        typer.echo(result.quality.render())
     print_summary(result)
 
     if html:

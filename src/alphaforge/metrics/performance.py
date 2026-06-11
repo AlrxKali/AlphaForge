@@ -1,6 +1,6 @@
 """Core performance metrics, implemented directly.
 
-We compute the headline numbers ourselves (they're simple, and annualization
+We compute the headline numbers ourselves (they are simple, and annualization
 conventions are easy to get subtly wrong if left to a black box). The richer
 visual tearsheet is delegated to quantstats in the reporting layer.
 

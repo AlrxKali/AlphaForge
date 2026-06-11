@@ -1,8 +1,10 @@
 """The DataProvider interface. The single most important abstraction here.
 
 Everything downstream depends on price data *only* through this interface.
-Swapping yfinance (which has survivorship bias) for a point-in-time-correct,
-delisting-inclusive source (Polygon, Tiingo, Norgate, ...) is therefore a
+Swapping yfinance (which has survivorship bias) for a point-in-time-correct.
+
+This is design for a free library as yfinance. In the future we plan to integrate
+a delisting-inclusive source (Polygon, Tiingo, Norgate, ect), so that is just a
 one-class change that the rest of the system never sees.
 """
 

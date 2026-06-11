@@ -31,16 +31,33 @@ class BacktestResult:
     weights: pd.DataFrame
     config: BacktestConfig
     portfolio: object | None = None  # the raw vbt.Portfolio, if available
+    quality: object | None = None    # data.quality.QualityReport, if computed
 
 
-def build_target_weights(scores: pd.DataFrame, cfg: BacktestConfig) -> pd.DataFrame:
+def _align_mask(mask: pd.DataFrame, like: pd.DataFrame) -> pd.DataFrame:
+    """Reindex a boolean mask onto another frame's axes, missing -> False."""
+    return mask.reindex(index=like.index, columns=like.columns).fillna(False).astype(bool)
+
+
+def build_target_weights(
+    scores: pd.DataFrame, cfg: BacktestConfig, tradeable: pd.DataFrame | None = None
+) -> pd.DataFrame:
     """Top-N equal-weight long-only target weights from factor scores.
 
     Critically: the returned weights are shifted forward one bar so that a
     signal computed from data through day t is only acted on at t+1. This is
     the primary lookahead-bias guard at the portfolio level.
+
+    If ``tradeable`` is given, a name is excluded from selection on any date it
+    is not tradeable (not a universe member, or no usable price), and any held
+    position is forced to cash the moment the name becomes non-tradeable, so a
+    mid-hold delisting can never be silently carried.
     """
     rule = _REBALANCE_RULE[cfg.rebalance]
+
+    # Non-tradeable names get a NaN score -> never ranked, never selected.
+    if tradeable is not None:
+        scores = scores.where(_align_mask(tradeable, scores))
 
     # Rank cross-sectionally each day; keep the top-N.
     ranks = scores.rank(axis=1, ascending=False, method="first")
@@ -53,15 +70,27 @@ def build_target_weights(scores: pd.DataFrame, cfg: BacktestConfig) -> pd.DataFr
         on_rebal = pd.Series(weights.index.isin(rebal_days), index=weights.index)
         weights = weights.where(on_rebal, axis=0).ffill().fillna(0.0)
 
-    # Shift: act tomorrow on today's signal. THE no-lookahead guard.
-    return weights.shift(1).fillna(0.0)
+    # Shift: act tomorrow on today's signal. Thr no-lookahead guard.
+    weights = weights.shift(1).fillna(0.0)
+
+    # Exit (to cash) any name that is no longer tradeable on the holding date,
+    # including between rebalances.
+    if tradeable is not None:
+        weights = weights.where(_align_mask(tradeable, weights), 0.0)
+
+    return weights
 
 
-def run_backtest(prices: pd.DataFrame, scores: pd.DataFrame, cfg: BacktestConfig) -> BacktestResult:
+def run_backtest(
+    prices: pd.DataFrame,
+    scores: pd.DataFrame,
+    cfg: BacktestConfig,
+    tradeable: pd.DataFrame | None = None,
+) -> BacktestResult:
     import vectorbt as vbt  # lazy heavy import
 
     close = prices["close"]
-    weights = build_target_weights(scores, cfg).reindex(close.index).fillna(0.0)
+    weights = build_target_weights(scores, cfg, tradeable).reindex(close.index).fillna(0.0)
 
     # Drop the warmup region where the factor is all-NaN (no position yet).
     valid = weights.abs().sum(axis=1) > 0

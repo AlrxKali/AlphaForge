@@ -29,16 +29,25 @@ class YFinanceProvider(DataProvider):
         self.cache = cache or PriceCache()
 
     def get_prices(self, symbols: list[str], start: date, end: date) -> pd.DataFrame:
-        frames: dict[str, pd.DataFrame] = {}
-        for sym in symbols:
-            frames[sym] = self._get_one(sym, start, end)
+        # Download each name: a symbol with no data (For example, delisted) yields an
+        # empty frame and is simply omitted from the concat. It never allowed to
+        # corrupt the panel's DatetimeIndex.
+        frames = {sym: self._get_one(sym, start, end) for sym in symbols}
+        frames = {sym: df for sym, df in frames.items() if not df.empty}
 
-        # Assemble a (field, symbol) column MultiIndex.
-        out = pd.concat(
-            {sym: df for sym, df in frames.items()}, axis=1
-        )  # columns: (symbol, field)
+        all_cols = pd.MultiIndex.from_product([_FIELDS, symbols], names=["field", "symbol"])
+        if not frames:
+            idx = pd.DatetimeIndex([], name="date")
+            return pd.DataFrame(index=idx, columns=all_cols, dtype="float64")
+
+        out = pd.concat(frames, axis=1)            # columns: (symbol, field)
         out.columns = out.columns.swaplevel(0, 1)  # -> (field, symbol)
-        out = out.sort_index(axis=1)
+        out = out.sort_index(axis=0).sort_index(axis=1)
+
+        # Reindex so EVERY requested symbol keeps columns (missing -> all-NaN).
+        # Dropping them would hide no-data names, instead the quality layer flags
+        # them and the tradeability mask excludes them.
+        out = out.reindex(columns=all_cols)
         return out.loc[str(start) : str(end)]
 
     def _get_one(self, symbol: str, start: date, end: date) -> pd.DataFrame:
@@ -47,7 +56,11 @@ class YFinanceProvider(DataProvider):
             return cached.loc[str(start) : str(end)]
 
         df = self._download(symbol, start, end)
-        if cached is not None:
+        if df.empty:
+            # No data (For example, fully delisted). Don't cache emptiness: A transient
+            # fetch failure shouldn't permanently mark a name as dead.
+            return df
+        if cached is not None and not cached.empty:
             df = pd.concat([cached, df]).sort_index()
             df = df[~df.index.duplicated(keep="last")]
         self.cache.save(self.name, symbol, df)
@@ -70,9 +83,9 @@ class YFinanceProvider(DataProvider):
             auto_adjust=True,  # adjusted close for correct returns
             progress=False,
         )
-        if raw.empty:
+        if raw is None or raw.empty:
             warnings.warn(f"No data returned for {symbol}", stacklevel=2)
-            return pd.DataFrame(columns=_FIELDS)
+            return pd.DataFrame(columns=_FIELDS, index=pd.DatetimeIndex([], name="date"))
 
         # yfinance returns a (Price, Ticker) column MultiIndex for single tickers
         # under recent versions. Normalize to lowercase single-level fields.

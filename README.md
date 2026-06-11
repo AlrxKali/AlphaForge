@@ -16,7 +16,8 @@ any single piece can be peeled out later if it ever genuinely needs independent 
 
 | Module | Responsibility |
 |--------|----------------|
-| `data/` | Download, cache (parquet), and serve price data behind a `DataProvider` interface |
+| `data/` | Download, cache (parquet), serve prices behind a `DataProvider` interface; data-quality checks |
+| `universe/` | `Universe` interface, *which* symbols are investable *when* (static or point-in-time membership) |
 | `factors/` | `Factor` base class + a registry of signals (momentum to start) |
 | `engine/` | Top-N portfolio construction + vectorbt fill/PnL simulation |
 | `metrics/` | Sharpe, Sortino, drawdown, Calmar, etc. (computed directly) |
@@ -57,6 +58,32 @@ alphaforge run \
   --html report.html
 ```
 
+**Survivorship-free runs** use a point-in-time membership table instead of a
+fixed list, each symbol carries the dates it was actually a member (blank `end`
+= still active), and the engine never selects or holds a name outside its window:
+
+```bash
+alphaforge run \
+  --universe-file examples/membership_sample.csv \
+  --start 2021-01-01 --end 2023-06-01 \
+  --factor momentum --top-n 3
+```
+
+Each run prints a **data-quality report** first (no-data names, partial coverage,
+non-positive prices, implausible jumps) so you see what you're trusting.
+
+You don't hand-write the membership table, generate a real, survivorship-correct
+S&P 500 one (sourced from [`fja05680/sp500`](https://github.com/fja05680/sp500)):
+
+```bash
+python scripts/build_membership.py --start 2019-01-01 --end 2023-12-31 \
+    --out examples/membership_sp500_2019_2023.csv
+```
+
+It emits one row per membership spell (`symbol,start,end`, blank `end` = still a
+member), handles re-additions, and converts dotted tickers (BRK.B → BRK-B) for
+yfinance.
+
 Or from Python / a notebook:
 
 ```python
@@ -76,7 +103,7 @@ print_summary(run(cfg))
 ## Status & roadmap
 
 - [x] **Phase 1: vertical slice**: yfinance → cache → momentum → vectorbt → metrics → report
-- [ ] **Phase 2: data depth**: point-in-time correctness, universe/survivorship handling
+- [x] **Phase 2: data depth**: `Universe` interface (static + point-in-time), tradeability masking, data-quality report
 - [ ] **Phase 3: factor framework**: value, volatility, mean-reversion, factor combination
 - [ ] **Phase 4: walk-forward orchestration**: re-run engine per window, OOS reporting
 - [ ] **Phase 5: FastAPI layer**: expose the core for a web frontend

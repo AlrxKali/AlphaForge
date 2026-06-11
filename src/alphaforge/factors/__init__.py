@@ -3,6 +3,6 @@
 from alphaforge.factors.base import Factor, get_factor, register_factor
 
 # Import concrete factors so their @register_factor decorators run.
-from alphaforge.factors import momentum  # noqa: F401  (registration side-effect)
+from alphaforge.factors import momentum 
 
 __all__ = ["Factor", "get_factor", "register_factor"]
