@@ -4,12 +4,9 @@ hand the result to reporting.
     alphaforge run --symbols AAPL,MSFT,GOOG,AMZN,META,NVDA --start 2018-01-01 \
         --end 2024-12-31 --factor momentum --top-n 3 --html report.html
 """
-
 from __future__ import annotations
-
 from datetime import date
 
-import typer
 
 from alphaforge.config import (
     BacktestConfig,
@@ -19,6 +16,11 @@ from alphaforge.config import (
     Rebalance,
     UniverseConfig,
 )
+
+import typer
+import json
+from alphaforge.reporting import print_summary, save_html_report
+from alphaforge.runner import run as run_backtest
 
 app = typer.Typer(add_completion=False, help="AlphaForge alpha research platform.")
 
@@ -32,6 +34,9 @@ def run(
     start: str = typer.Option(..., help="Start date YYYY-MM-DD."),
     end: str = typer.Option(..., help="End date YYYY-MM-DD."),
     factor: str = typer.Option("momentum", help="Factor name."),
+    factor_params: str = typer.Option(
+        "", help='JSON factor params, e.g. \'{"lookback": 126}\' or a composite spec.'
+    ),
     top_n: int = typer.Option(10, help="Hold the top-N ranked names."),
     rebalance: Rebalance = typer.Option(Rebalance.MONTHLY, help="Rebalance cadence."),
     commission_bps: float = typer.Option(5.0, help="Commission, bps of notional."),
@@ -42,8 +47,8 @@ def run(
 ) -> None:
     """Run a single backtest end-to-end and print a performance summary."""
     # Imports deferred so `--help` and arg parsing never pay the heavy import cost.
-    from alphaforge.reporting import print_summary, save_html_report
-    from alphaforge.runner import run as run_backtest
+
+    params = json.loads(factor_params) if factor_params else {}
 
     # Resolve the universe: a point-in-time membership file takes precedence.
     if universe_file:
@@ -63,7 +68,7 @@ def run(
 
     cfg = BacktestConfig(
         data=data,
-        factor=FactorConfig(name=factor),
+        factor=FactorConfig(name=factor, params=params),
         costs=CostConfig(commission_bps=commission_bps, slippage_bps=slippage_bps),
         rebalance=rebalance,
         top_n=top_n,
@@ -72,9 +77,7 @@ def run(
     )
 
     result = run_backtest(cfg)
-    if result.quality is not None:
-        typer.echo(result.quality.render())
-    print_summary(result)
+    print_summary(result)  # full report: header + data quality + performance
 
     if html:
         try:

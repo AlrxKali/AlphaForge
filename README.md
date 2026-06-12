@@ -18,11 +18,12 @@ any single piece can be peeled out later if it ever genuinely needs independent 
 |--------|----------------|
 | `data/` | Download, cache (parquet), serve prices behind a `DataProvider` interface; data-quality checks |
 | `universe/` | `Universe` interface, *which* symbols are investable *when* (static or point-in-time membership) |
-| `factors/` | `Factor` base class + a registry of signals (momentum to start) |
+| `fundamentals/` | `FundamentalProvider` interface, point-in-time financials (SEC EDGAR, filing-date stamped) |
+| `factors/` | `Factor` base class + a registry of signals (momentum, low-vol, reversal, value, composite) |
 | `engine/` | Top-N portfolio construction + vectorbt fill/PnL simulation |
 | `metrics/` | Sharpe, Sortino, drawdown, Calmar, etc. (computed directly) |
 | `validation/` | Walk-forward / out-of-sample window generation |
-| `reporting/` | Plain-text summary + quantstats HTML tearsheet |
+| `reporting/` | Config/provenance header + data-quality + performance text report; quantstats HTML tearsheet |
 | `runner.py` | The single seam wiring the pipeline; CLI/API/notebook all call it |
 
 ### Correctness guardrails (baked in, not bolted on)
@@ -100,11 +101,35 @@ cfg = BacktestConfig(
 print_summary(run(cfg))
 ```
 
+## Factors
+
+All factors return scores where **higher = more attractive**, and are
+**trailing-only** (no lookahead). Combine them with `composite`, which
+z-scores each component cross-sectionally before the weighted sum.
+
+| name | signal | key params |
+|------|--------|------------|
+| `momentum` | 12-1 total return (trailing winners) | `lookback`, `skip` |
+| `volatility` | low realized vol (negated) | `lookback` |
+| `mean_reversion` | short-term reversal (recent losers) | `lookback` |
+| `value` | book-to-market from point-in-time SEC EDGAR filings | `provider`, `metric` |
+| `composite` | z-scored weighted blend of the above | `components` |
+
+```bash
+# Long-momentum + short-reversal + low-vol blend
+alphaforge run --symbols AAPL,MSFT,NVDA,AMZN,META,JPM,XOM,UNH,JNJ,GOOG \
+  --start 2019-01-01 --end 2024-12-31 --top-n 3 \
+  --factor composite --factor-params '{"components":[
+     {"name":"momentum","weight":1.0,"params":{"lookback":252,"skip":21}},
+     {"name":"mean_reversion","weight":0.5,"params":{"lookback":21}},
+     {"name":"volatility","weight":0.5,"params":{"lookback":63}}]}'
+```
+
 ## Status & roadmap
 
 - [x] **Phase 1: vertical slice**: yfinance → cache → momentum → vectorbt → metrics → report
 - [x] **Phase 2: data depth**: `Universe` interface (static + point-in-time), tradeability masking, data-quality report
-- [ ] **Phase 3: factor framework**: value, volatility, mean-reversion, factor combination
+- [x] **Phase 3: factor framework**: momentum, low-volatility, mean-reversion, **value** (point-in-time SEC EDGAR book-to-market) + z-scored `composite` blending
 - [ ] **Phase 4: walk-forward orchestration**: re-run engine per window, OOS reporting
 - [ ] **Phase 5: FastAPI layer**: expose the core for a web frontend
 

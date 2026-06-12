@@ -16,6 +16,20 @@ from abc import ABC, abstractmethod
 import pandas as pd
 
 
+def zscore(scores: pd.DataFrame) -> pd.DataFrame:
+    """Cross-sectional (per-date) z-score: standardize each row across symbols.
+
+    This is what makes heterogeneous factors comparable before blending: a
+    momentum return (~0.2) and a volatility (~0.01) live on different scales, so
+    we re-express both as "standard deviations above/below the cross-section."
+    Rows with fewer than two valid values yield 0 (no cross-section to rank).
+    """
+    mean = scores.mean(axis=1)
+    std = scores.std(axis=1, ddof=0)
+    z = scores.sub(mean, axis=0).div(std.replace(0.0, pd.NA), axis=0)
+    return z.where(scores.notna())
+
+
 class Factor(ABC):
     name: str = "abstract"
 
