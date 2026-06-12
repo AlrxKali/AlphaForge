@@ -123,9 +123,9 @@ def _render_header(result: BacktestResult) -> str:
     return "\n".join(lines)
 
 
-def _render_performance(result: BacktestResult) -> str:
-    stats = compute_metrics(result.returns).as_dict()
-    lines = [" Performance ".center(_WIDTH, "=")]
+def _render_metrics(returns, title: str) -> str:
+    stats = compute_metrics(returns).as_dict()
+    lines = [f" {title} ".center(_WIDTH, "=")]
     for key, label in _LABELS.items():
         val = stats[key]
         shown = f"{val:>8.2%}" if key in _AS_PCT else f"{val:>8.2f}"
@@ -134,12 +134,59 @@ def _render_performance(result: BacktestResult) -> str:
     return "\n".join(lines)
 
 
+def _render_performance(result: BacktestResult) -> str:
+    return _render_metrics(result.returns, "Performance")
+
+
 def print_summary(result: BacktestResult) -> None:
     """Print the full text report: config header, data quality, performance."""
     print(_render_header(result))
     if result.quality is not None:
         print(result.quality.render())
     print(_render_performance(result))
+
+
+def _fmt_window_params(params: dict) -> str:
+    if not params:
+        return "base"
+    return ", ".join(f"{k}={v}" for k, v in params.items())
+
+
+def print_walk_forward(wf) -> None:
+    """Print a walk-forward study: setup, per-window OOS table, stitched OOS
+    metrics, and the in-sample vs out-of-sample Sharpe gap."""
+    cfg = wf.config
+    n = len(wf.windows)
+    grid_combos = len({tuple(sorted(w.params.items())) for w in wf.windows}) if n else 0
+    oos = wf.oos_returns
+
+    print(f" Walk-Forward: {cfg.name} ".center(_WIDTH, "="))
+    if n:
+        w0, w1 = wf.windows[0].window, wf.windows[-1].window
+        train_mo = _months_between(w0.train_start, w0.train_end)
+        test_mo = _months_between(w0.test_start, w0.test_end)
+        print(f" Train/Test ~ {train_mo}/{test_mo} mo   Windows: {n}   Params seen: {grid_combos}")
+        print(f" OOS span:   {oos.index.min().date()} -> {oos.index.max().date()}")
+    print("-" * _WIDTH)
+    print(f" {'Test period':<19}{'Params':<24}{'tr.SR':>6}{'oos.SR':>7}{'oos.ret':>9}")
+    for wr in wf.windows:
+        period = f"{wr.window.test_start:%Y-%m}..{wr.window.test_end:%Y-%m}"
+        params = _fmt_window_params(wr.params)
+        if len(params) > 23:
+            params = params[:22] + "."
+        print(
+            f" {period:<19}{params:<24}{wr.train_sharpe:>6.2f}"
+            f"{wr.test_sharpe:>7.2f}{wr.test_return:>9.1%}"
+        )
+
+    print(_render_metrics(oos, "OOS (stitched, out-of-sample)"))
+    print(f" In-sample (fixed params) Sharpe over OOS span: {wf.benchmark_sharpe:>6.2f}")
+    print(f" Walk-forward OOS Sharpe:                       {compute_metrics(oos).sharpe:>6.2f}")
+    print("=" * _WIDTH)
+
+
+def _months_between(a, b) -> int:
+    return round((b - a).days / 30.44)
 
 
 def _html_provenance(result: BacktestResult) -> str:

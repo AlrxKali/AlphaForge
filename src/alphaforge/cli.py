@@ -19,7 +19,7 @@ from alphaforge.config import (
 
 import typer
 import json
-from alphaforge.reporting import print_summary, save_html_report
+from alphaforge.reporting import print_summary, print_walk_forward, save_html_report
 from alphaforge.runner import run as run_backtest
 
 app = typer.Typer(add_completion=False, help="AlphaForge alpha research platform.")
@@ -44,10 +44,20 @@ def run(
     cash: float = typer.Option(100_000.0, help="Initial cash."),
     name: str = typer.Option("untitled", help="Run / report label."),
     html: str = typer.Option("", help="If set, write a quantstats HTML tearsheet here."),
+    walk_forward: bool = typer.Option(
+        False, "--walk-forward", help="Run a walk-forward study instead of a single backtest."
+    ),
+    train_months: int = typer.Option(36, help="Walk-forward in-sample window length (months)."),
+    test_months: int = typer.Option(12, help="Walk-forward out-of-sample window length (months)."),
+    step_months: int = typer.Option(0, help="Walk-forward step (months); 0 = test_months."),
+    anchored: bool = typer.Option(
+        False, "--anchored", help="Expanding (anchored) train window instead of rolling."
+    ),
+    grid: str = typer.Option(
+        "", help='JSON param grid to optimize per window, for example \'{"lookback":[126,252]}\'.'
+    ),
 ) -> None:
-    """Run a single backtest end-to-end and print a performance summary."""
-    # Imports deferred so `--help` and arg parsing never pay the heavy import cost.
-
+    """Run a single backtest (or a --walk-forward study) and print a report."""
     params = json.loads(factor_params) if factor_params else {}
 
     # Resolve the universe: a point-in-time membership file takes precedence.
@@ -75,6 +85,20 @@ def run(
         initial_cash=cash,
         name=name,
     )
+
+    if walk_forward:
+        from alphaforge.validation import walk_forward as run_walk_forward
+
+        wf = run_walk_forward(
+            cfg,
+            train_months=train_months,
+            test_months=test_months,
+            step_months=step_months or None,
+            anchored=anchored,
+            grid=json.loads(grid) if grid else None,
+        )
+        print_walk_forward(wf)
+        return
 
     result = run_backtest(cfg)
     print_summary(result)  # full report: header + data quality + performance

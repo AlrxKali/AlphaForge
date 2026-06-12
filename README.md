@@ -22,7 +22,7 @@ any single piece can be peeled out later if it ever genuinely needs independent 
 | `factors/` | `Factor` base class + a registry of signals (momentum, low-vol, reversal, value, composite) |
 | `engine/` | Top-N portfolio construction + vectorbt fill/PnL simulation |
 | `metrics/` | Sharpe, Sortino, drawdown, Calmar, etc. (computed directly) |
-| `validation/` | Walk-forward / out-of-sample window generation |
+| `validation/` | Walk-forward: window generation + per-window param optimization + stitched OOS evaluation |
 | `reporting/` | Config/provenance header + data-quality + performance text report; quantstats HTML tearsheet |
 | `runner.py` | The single seam wiring the pipeline; CLI/API/notebook all call it |
 
@@ -125,12 +125,31 @@ alphaforge run --symbols AAPL,MSFT,NVDA,AMZN,META,JPM,XOM,UNH,JNJ,GOOG \
      {"name":"volatility","weight":0.5,"params":{"lookback":63}}]}'
 ```
 
+## Walk-forward validation
+
+`--walk-forward` optimizes factor params on each rolling in-sample (train)
+window, evaluates them on the next out-of-sample (test) window, and stitches the
+test slices into one honest OOS curve. The report shows the per-window choices
+plus the in-sample vs out-of-sample Sharpe gap (the overfitting tell).
+
+```bash
+alphaforge run --symbols AAPL,MSFT,NVDA,AMZN,GOOG,JPM,XOM,JNJ \
+  --start 2014-01-01 --end 2024-12-31 --factor momentum --top-n 3 \
+  --walk-forward --train-months 36 --test-months 12 \
+  --grid '{"lookback":[126,252],"skip":[21,63]}'
+```
+
+With no `--grid` it becomes a rolling fixed-parameter OOS evaluation. Use
+`--anchored` for an expanding (instead of rolling) train window. Each candidate
+is backtested once over the full period and sliced per window, so cost is
+O(grid), not O(grid x windows).
+
 ## Status & roadmap
 
 - [x] **Phase 1: vertical slice**: yfinance → cache → momentum → vectorbt → metrics → report
 - [x] **Phase 2: data depth**: `Universe` interface (static + point-in-time), tradeability masking, data-quality report
 - [x] **Phase 3: factor framework**: momentum, low-volatility, mean-reversion, **value** (point-in-time SEC EDGAR book-to-market) + z-scored `composite` blending
-- [ ] **Phase 4: walk-forward orchestration**: re-run engine per window, OOS reporting
+- [x] **Phase 4: walk-forward orchestration**: per-window param optimization, stitched OOS curve, in-sample vs OOS Sharpe gap
 - [ ] **Phase 5: FastAPI layer**: expose the core for a web frontend
 
 ## Tests
