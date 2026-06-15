@@ -144,13 +144,49 @@ With no `--grid` it becomes a rolling fixed-parameter OOS evaluation. Use
 is backtested once over the full period and sliced per window, so cost is
 O(grid), not O(grid x windows).
 
+## API (service layer)
+
+The `alphaforge_api` package (install with `pip install -e ".[api]"`) is a thin
+FastAPI app plus an arq worker over the analytics core. The API persists jobs to
+Supabase and enqueues them; the worker runs the core off the request path and
+writes results back. The core never imports anything web. The arrow only points
+api -> core, so analytics contributors never touch this layer.
+
+```
+UI ──HTTP──> FastAPI ──enqueue──> Redis (arq) ──> Worker ──imports──> alphaforge core
+                 │                                    │
+                 └──────────> Supabase <─────────────-┘   (Postgres + Auth + Storage)
+```
+
+Database schema and migrations live in a separate repo (`MarketDNA_DB`), so the
+database can evolve without touching this project.
+
+Local bring-up:
+
+```bash
+docker compose up -d redis
+uvicorn alphaforge_api.main:app --reload
+arq alphaforge_api.worker.WorkerSettings
+```
+
+The backend serves **data, not presentation**: the worker stores a compact
+summary in the row (for listing/sorting) and the full time series (equity,
+returns, drawdown, and per-window rows for walk-forward) as a JSON artifact. A
+separate frontend repo renders the charts.
+
+Endpoints: `POST /backtests` (enqueue, returns 202 + id), `GET /backtests`,
+`GET /backtests/{id}` (poll status + summary metrics), `GET /backtests/{id}/series`
+(structured results JSON for charting), `DELETE /backtests/{id}`, `GET /healthz`.
+Auth is the Supabase JWT in the Authorization header; row-level security scopes
+every user to their own rows.
+
 ## Status & roadmap
 
 - [x] **Phase 1: vertical slice**: yfinance → cache → momentum → vectorbt → metrics → report
 - [x] **Phase 2: data depth**: `Universe` interface (static + point-in-time), tradeability masking, data-quality report
 - [x] **Phase 3: factor framework**: momentum, low-volatility, mean-reversion, **value** (point-in-time SEC EDGAR book-to-market) + z-scored `composite` blending
 - [x] **Phase 4: walk-forward orchestration**: per-window param optimization, stitched OOS curve, in-sample vs OOS Sharpe gap
-- [ ] **Phase 5: FastAPI layer**: expose the core for a web frontend
+- [x] **Phase 5: FastAPI layer**: FastAPI + arq worker + Supabase (auth via JWKS, row-level security, storage) verified end-to-end live. Universes upload endpoints still deferred.
 
 ## Tests
 
