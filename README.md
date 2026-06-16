@@ -176,9 +176,15 @@ separate frontend repo renders the charts.
 
 Endpoints: `POST /backtests` (enqueue, returns 202 + id), `GET /backtests`,
 `GET /backtests/{id}` (poll status + summary metrics), `GET /backtests/{id}/series`
-(structured results JSON for charting), `DELETE /backtests/{id}`, `GET /healthz`.
-Auth is the Supabase JWT in the Authorization header; row-level security scopes
-every user to their own rows.
+(structured results JSON for charting), `DELETE /backtests/{id}`,
+`POST /universes` (upload a membership CSV), `GET /universes`,
+`DELETE /universes/{id}`, `GET /healthz`. Auth is the Supabase JWT in the
+Authorization header, row-level security scopes every user to their own rows.
+
+To run a survivorship-correct backtest through the API, upload a membership CSV
+with `POST /universes`, then set
+`config.data.universe = {"kind": "point_in_time", "membership_file": "<universe-id>"}`
+in the backtest body; the worker resolves that id to the stored CSV.
 
 ## Status & roadmap
 
@@ -186,10 +192,10 @@ every user to their own rows.
 - [x] **Phase 2: data depth**: `Universe` interface (static + point-in-time), tradeability masking, data-quality report
 - [x] **Phase 3: factor framework**: momentum, low-volatility, mean-reversion, **value** (point-in-time SEC EDGAR book-to-market) + z-scored `composite` blending
 - [x] **Phase 4: walk-forward orchestration**: per-window param optimization, stitched OOS curve, in-sample vs OOS Sharpe gap
-- [x] **Phase 5: FastAPI layer**: FastAPI + arq worker + Supabase (auth via JWKS, row-level security, storage) verified end-to-end live. Universes upload endpoints still deferred.
+- [x] **Phase 5: FastAPI layer**: FastAPI + arq worker + Supabase (auth via JWKS, row-level security, storage). Backtests, walk-forward, and universe upload all verified end-to-end live; results served as structured JSON.
 
 ## Tests
 
 ```bash
-pytest        # correctness-critical logic; runs without the engine extra
+pytest        # correctness-critical logic. Runs without the engine extra
 ```

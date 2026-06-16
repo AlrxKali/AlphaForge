@@ -60,6 +60,11 @@ packages = ["src/alphaforge", "src/alphaforge_api"]
 line-length = 100
 target-version = "py310"
 
+[tool.ruff.lint.per-file-ignores]
+# Package __init__ files import submodules for their registration side effects
+# (and re-export the public API), so "imported but unused" does not apply.
+"__init__.py" = ["F401"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

@@ -162,7 +162,7 @@ def print_walk_forward(wf) -> None:
 
     print(f" Walk-Forward: {cfg.name} ".center(_WIDTH, "="))
     if n:
-        w0, w1 = wf.windows[0].window, wf.windows[-1].window
+        w0 = wf.windows[0].window
         train_mo = _months_between(w0.train_start, w0.train_end)
         test_mo = _months_between(w0.test_start, w0.test_end)
         print(f" Train/Test ~ {train_mo}/{test_mo} mo   Windows: {n}   Params seen: {grid_combos}")

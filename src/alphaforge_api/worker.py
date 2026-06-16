@@ -12,6 +12,8 @@ rows for walk-forward) is stored as a JSON artifact for the frontend to render.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -85,6 +87,35 @@ def _upload_json(sb, user_id: str, backtest_id: str, payload: dict) -> str:
     return path
 
 
+def _resolve_stored_universe(sb, cfg: BacktestConfig, user_id: str) -> tuple[BacktestConfig, str | None]:
+    """If the config uses a point-in-time universe, its ``membership_file`` is a
+    stored-universe id. Download that CSV to a temp file and rewrite the config to
+    point at it. Returns (possibly new cfg, temp path to clean up or None)."""
+    ucfg = cfg.data.universe
+    if not (ucfg and ucfg.kind == "point_in_time" and ucfg.membership_file):
+        return cfg, None
+
+    universe_id = ucfg.membership_file
+    rows = (
+        sb.table("universes")
+        .select("storage_path")
+        .eq("id", universe_id)
+        .eq("user_id", user_id)
+        .execute()
+        .data
+    )
+    if not rows:
+        raise ValueError(f"universe '{universe_id}' not found")
+
+    data = sb.storage.from_(get_settings().universes_bucket).download(rows[0]["storage_path"])
+    tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+    tmp.write(data)
+    tmp.close()
+
+    new_data = cfg.data.model_copy(update={"universe": ucfg.model_copy(update={"membership_file": tmp.name})})
+    return cfg.model_copy(update={"data": new_data}), tmp.name
+
+
 async def run_backtest_job(ctx, backtest_id: str) -> None:
     sb = service_client()
     rows = sb.table("backtests").select("*").eq("id", backtest_id).execute().data
@@ -95,8 +126,10 @@ async def run_backtest_job(ctx, backtest_id: str) -> None:
     sb.table("backtests").update({"status": "running", "started_at": _now()}).eq(
         "id", backtest_id
     ).execute()
+    tmp_universe: str | None = None
     try:
         cfg = BacktestConfig.model_validate(row["config"])
+        cfg, tmp_universe = _resolve_stored_universe(sb, cfg, row["user_id"])
         opts = row.get("options") or {}
         if row.get("kind") == "walk_forward":
             wf = walk_forward(
@@ -125,6 +158,9 @@ async def run_backtest_job(ctx, backtest_id: str) -> None:
             {"status": "failed", "error": str(exc), "finished_at": _now()}
         ).eq("id", backtest_id).execute()
         raise
+    finally:
+        if tmp_universe and os.path.exists(tmp_universe):
+            os.unlink(tmp_universe)
 
 
 class WorkerSettings:
