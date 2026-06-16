@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from arq import create_pool
 from arq.connections import RedisSettings
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from alphaforge_api.routes import backtests, health, universes
 from alphaforge_api.settings import get_settings
@@ -27,6 +28,13 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="AlphaForge API", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=get_settings().allowed_origins(),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.include_router(health.router)
     app.include_router(backtests.router)
     app.include_router(universes.router)
